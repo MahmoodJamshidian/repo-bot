@@ -9,7 +9,6 @@ import os
 dotenv.load_dotenv()
 
 BOT_TOKEN=os.environ['BOT_TOKEN'] # discord bot token
-GIT_TOKEN=os.environ['GIT_TOKEN'] # github api token
 DB_URI=os.environ['DB_URI'] # mongodb cluster url
 
 connetion = MongoClient(DB_URI)
@@ -31,7 +30,7 @@ async def on_guild_join(guild: nextcord.Guild):
     t_guilds.insert_one({"id": str(guild.id), "repos": []})
 
 @bot.slash_command("add-project", "add new project to watch")
-async def add_project(interaction: nextcord.Interaction, repo: str = nextcord.SlashOption(required=True, description="url of repository"), display_name: str = nextcord.SlashOption(name="display name", description="channel title", required=False)):
+async def add_project(interaction: nextcord.Interaction, repo: str = nextcord.SlashOption(required=True, description="url of repository (HTTPS)")):
     pass
 
 bot.run(BOT_TOKEN)
