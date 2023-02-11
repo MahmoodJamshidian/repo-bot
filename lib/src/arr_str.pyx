@@ -1,6 +1,4 @@
 from libc.stdint cimport *
-from libc.string cimport strcpy
-from libc.stdlib cimport malloc
 cdef extern from "arr_str.hpp":
     cdef struct result:
         char *data
