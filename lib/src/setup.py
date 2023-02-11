@@ -7,6 +7,11 @@ ext_modules = [
         name="vector",
         sources=["vector.pyx"],
         language="c++"
+    ),
+    Extension(
+        name="arr_str",
+        sources=["arr_str.pyx"],
+        language="c++"
     )
 ]
 
