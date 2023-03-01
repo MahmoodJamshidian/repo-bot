@@ -17,7 +17,7 @@ class str_arr
     str_arr(){}
     void append(char *_val)
     {
-        _data = (char *)realloc(_data, strlen(_data)+strlen(_val)+1);
+        _data = (char *)realloc(_data, _ptr+strlen(_val)+1);
         for(size_t _i = 0; _i < strlen(_val); _i++, _ptr++)
         {
             _data[_ptr] = _val[_i];
