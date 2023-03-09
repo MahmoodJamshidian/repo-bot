@@ -1,0 +1,3 @@
+[submodule "lib/str_arr"]
+	path = lib/str_arr
+	url = https://github.com/MahmoodJamshidian/str_arr
