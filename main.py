@@ -4,6 +4,7 @@ from nextcord.ext import commands
 from lib.str_arr.py_str_arr import StrArray
 from lib.vec.vec import ui64_vec
 from typing import Any, Self, Literal
+import logging
 import requests
 import asyncio
 import dotenv
@@ -119,13 +120,46 @@ t_guilds = db['guilds']
 
 bot = commands.Bot("/", intents=nextcord.Intents.all())
 
-reps = StrArray()
+repos = StrArray()
 events_id = ui64_vec([])
 
+def load_repos():
+    global repos, events_id
+    try:
+        repos
+    except:
+        pass
+    else:
+        del repos
+    try:
+        events_id
+    except:
+        pass
+    else:
+        del events_id
+    repos = StrArray()
+    events_id = ui64_vec([])
+    
+    for item in t_guilds.find():
+        for repo in item['repos']:
+            try:
+                repos.index(repo)
+            except ValueError:
+                try:
+                    repos.append(github_repository.get_from_url(repo).event_url)
+                except Exception as e:
+                    logging.error(f"{type(e).__name__}: {e}")
+    for repo in repos:
+        events_id.append(int(requests.get(repo).json()[0]["id"]))
+    
 
 class add_project_emb(nextcord.Embed):
     def __init__(self):
         super().__init__(title="adding project", description="waiting to validating repository address...", color=0x0092ed)
+
+class set_log_channel_emb(nextcord.Embed):
+    def __init__(self, log_channel: nextcord.TextChannel):
+        super().__init__(title="log channel changed", description=f"log channel successfully changed to {log_channel.mention}", color=0x00ff00)
 
 @bot.event
 async def on_ready():
@@ -133,12 +167,35 @@ async def on_ready():
 
 @bot.event
 async def on_guild_join(guild: nextcord.Guild):
-    t_guilds.insert_one({"id": str(guild.id), "repos": []})
+    t_guilds.insert_one({"id": str(guild.id), "repos": [], "log-channel": None})
+    
+    integrations: list[nextcord.Integration] = await guild.integrations()
+    for integration in integrations:
+        if isinstance(integration, nextcord.BotIntegration):
+            if integration.application.user.name == bot.user.name:
+                inviter: nextcord.Member = integration.user
+                break
+    await guild.system_channel.send(f"{inviter.mention} Thank you for inviting me. To start the robot activity, you need to enter the log channel of the robot, you can do this by entering the `/set-log-channel` command.")
+
+@bot.event
+async def on_guild_remove(guild: nextcord.Guild):
+    t_guilds.delete_one({"id": str(guild.id)})
+    
+@bot.slash_command("set-log-channel", "set the text channel to display logs there")
+async def set_log_channel(interaction: nextcord.Interaction, channel: nextcord.TextChannel = nextcord.SlashOption(required=True, description="text channel (note that the bot must have permission to send messages there)")):
+    t_guilds.update_one({"id": str(interaction.guild.id)}, {"$set": {'log-channel': str(channel.id)}})
+    await interaction.send(embed=set_log_channel_emb(channel))
 
 @bot.slash_command("add-project", "add new project to watch list")
 async def add_project(interaction: nextcord.Interaction, repo: str = nextcord.SlashOption(required=True, description="url of repository (HTTPS, SSH or repository addres `user/repo`)")):
     emb = add_project_emb()
     msg: nextcord.PartialInteractionMessage = await interaction.send(embed=emb)
+    if t_guilds.find({"id": str(interaction.guild.id)})[0]["log-channel"] == None:
+        emb.title = "adding repository was failed"
+        emb.description = "log channel is not set"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
+        emb.color = 0xff0000
+        await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
+        return
     try:
         repository = github_repository.get_from_url(repo)
     except Exception as e:
