@@ -99,6 +99,14 @@ class github_repository:
     
     def __repr__(self) -> str:
         return self.url()
+    
+    def __eq__(self, val) -> bool:
+        if (_type:=type(val)) == github_repository:
+            return self.event_url() == val.event_url()
+        elif _type == str:
+            return self.event_url() == github_repository.get_from_url(val).event_url()
+        else:
+            raise Exception(f"can't check equalment {type(self)} and {type(val)} objects")
 
 dotenv.load_dotenv()
 
@@ -112,7 +120,7 @@ t_guilds = db['guilds']
 bot = commands.Bot("/", intents=nextcord.Intents.all())
 
 reps = StrArray()
-last_check = ui64_vec([])
+events_id = ui64_vec([])
 
 
 class add_project_emb(nextcord.Embed):
