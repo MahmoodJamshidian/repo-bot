@@ -1,11 +1,12 @@
 from pymongo import MongoClient
 import nextcord
-from nextcord.ext import commands
+from nextcord.ext import commands, tasks
 from lib.str_arr.py_str_arr import StrArray
 from lib.vec.vec import ui64_vec
 from typing import Any, Self, Literal, Union
 import traceback
 import requests
+import asyncio
 import dotenv
 import os
 import re
@@ -107,7 +108,14 @@ class github_repository:
         return f"https://api.github.com/repos/{self.user}/{self.repo}/events"
     
     def get_last_event_id(self):
-        return int(requests.get(self.event_url() , headers={"Authorization": f"Bearer {GITHUB_TOKEN}"}).json()[0]['id'])
+        req = requests.get(self.event_url() , headers={"Authorization": f"Bearer {GITHUB_TOKEN}"})
+        if req.status_code == 200:
+            try:
+                return int(req.json()[0]['id'])
+            except:
+                return 0
+        else:
+            raise Exception("can't get last event id")
     
     def is_exists(self):
         return requests.get(self.event_url()).status_code == 200
@@ -178,28 +186,29 @@ def load_repos():
         except KeyError:
             events_id.append(1)
     print("loaded")
-        
+
+load_repos()
+
+@tasks.loop(seconds=5)
 async def event_loop():
-    while True:
-        for ind in range(len(repos)):
-            req = requests.get(repos[ind], headers={"Authorization": f"Bearer {GITHUB_TOKEN}"})
-            if req.status_code == 404:
-                # removed!
-                repo: github_repository = github_repository.get_from_event_url(repos[ind])
-                for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': repo.url("GITHUB REPO")}}}, {"log-channel": 1, "repos.$": 1, 'id': 1}):
-                    try:
-                        log_channel: nextcord.TextChannel = await bot.fetch_channel(int(guild_data['log-channel']))
-                        await log_channel.send(embed=repository_removed_emb(guild_data['repos'][0][1], repo))
-                    except:
-                        pass
-                    events_id.pop(ind)
-                    repos.pop(ind)
-                    t_guilds.update_many({}, {"$pull": {"repos": {'$in': [repo.url("GITHUB REPO")]}}})
-                continue
-            event = req.json()[0]
-            if int(event['id']) != events_id[ind]:
-                # new event!
-                pass
+    for ind in range(len(repos)):
+        try:
+            event_id = github_repository.get_from_event_url(repos[ind]).get_last_event_id()
+        except:
+            repo: github_repository = github_repository.get_from_event_url(repos[ind])
+            for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': repo.url("GITHUB REPO")}}}, {"log-channel": 1, "repos.$": 1, 'id': 1}):
+                try:
+                    log_channel: nextcord.TextChannel = await bot.fetch_channel(int(guild_data['log-channel']))
+                    await log_channel.send(embed=repository_removed_emb(guild_data['repos'][0][1], repo))
+                except:
+                    pass
+                events_id.pop(ind)
+                repos.pop(ind)
+                t_guilds.update_many({}, {"$pull": {"repos": {'$in': [repo.url("GITHUB REPO")]}}})
+            continue
+        if event_id != events_id[ind]:
+            # new event!
+            pass
             
     
 
@@ -217,10 +226,8 @@ class repository_removed_emb(nextcord.Embed):
 
 @bot.event
 async def on_ready():
+    event_loop.start()
     print(f"logged in as {bot.user}, ID = {bot.user.id}")
-    load_repos()
-    bot.loop.create_task(event_loop(), name="event_loop")
-    print("event loop started")
 
 @bot.event
 async def on_guild_join(guild: nextcord.Guild):
