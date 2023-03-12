@@ -236,7 +236,7 @@ async def event_loop():
                 case {"type": "PushEvent", "payload": payload, "actor": actor, "repo": repo}:
                     is_hanled = True
                     emb.title = "Push Event"
-                    emb.description = f"summary: a user made a push\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\nlast commit info:\nnumber of commits: {len(payload['commits'])}"
+                    emb.description = f"summary: a user made a push\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)number of commits: {len(payload['commits'])}\nlast commit: [{payload['head'][:7]}](https://github.com/{repo['name']}/commits/{payload['head']})\nlast commit message: `{payload['commits'][-1]['message']}`"
                     emb.set_footer(text=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
             if is_hanled:
                 for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': last_event['repo']['name']}}}, {"log-channel": 1, 'id': 1}):
@@ -245,7 +245,7 @@ async def event_loop():
                         await log_channel.send(embed=emb)
                     except:
                         pass
-                continue
+            events_id[ind] = int(last_event['id'])
 
 class add_or_remove_repo_emb(nextcord.Embed):
     def __init__(self, add=True):
