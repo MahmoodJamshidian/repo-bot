@@ -6,8 +6,8 @@ from lib.vec.vec import ui64_vec
 from typing import Any, Self, Literal, Union
 import traceback
 import requests
-import asyncio
 import dotenv
+import server
 import os
 import re
 
@@ -385,4 +385,10 @@ async def repove_repo(interaction: nextcord.Interaction, repo: str = nextcord.Sl
     emb.description = f"[{repository.repo}]({repository.url('HTTPS')}) repository has been removed from the watch list."
     emb.color = 0x00ff00
     await msg.edit(embed=emb)
-bot.run(BOT_TOKEN)
+
+if __name__ == "__main__":
+    server.run_as_thread()
+    try:
+        bot.run(BOT_TOKEN)
+    except nextcord.errors.HTTPException:
+        os.system("kill 1")
