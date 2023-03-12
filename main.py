@@ -193,13 +193,20 @@ load_repos()
 async def event_loop():
     for ind in range(len(repos)):
         try:
-            event_id = github_repository.get_from_event_url(repos[ind]).get_last_event_id()
+            event_req = requests.get(repos[ind] , headers={"Authorization": f"Bearer {GITHUB_TOKEN}"})
+            if event_req.status_code == 200:
+                try:
+                    event_id = int(event_req.json()[0]['id'])
+                except:
+                    event_id = 0
+            else:
+                raise Exception
         except:
             repo: github_repository = github_repository.get_from_event_url(repos[ind])
             for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': repo.url("GITHUB REPO")}}}, {"log-channel": 1, "repos.$": 1, 'id': 1}):
                 try:
                     log_channel: nextcord.TextChannel = await bot.fetch_channel(int(guild_data['log-channel']))
-                    await log_channel.send(embed=repository_removed_emb(guild_data['repos'][0][1], repo))
+                    await log_channel.send(embed=repo_removed_emb(guild_data['repos'][0][1], repo))
                 except:
                     pass
                 events_id.pop(ind)
@@ -207,22 +214,50 @@ async def event_loop():
                 t_guilds.update_many({}, {"$pull": {"repos": {'$in': [repo.url("GITHUB REPO")]}}})
             continue
         if event_id != events_id[ind]:
-            # new event!
-            pass
-            
-    
+            last_event = event_req.json()[0]
+            is_hanled = False
+            emb = nextcord.Embed()
+            match last_event:
+                case {"type": "CreateEvent", "payload": payload, "actor": actor, "repo": repo}:
+                    is_hanled = True
+                    emb.title = "Create " + payload['ref_type'].capitalize() + " Event"
+                    emb.description = f"summary: a new {payload['ref_type']} was added\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\n"
+                    emb.set_footer(name=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
+                case {"type": "DeleteEvent", "payload": payload, "actor": actor, "repo": repo}:
+                    is_hanled = True
+                    emb.title = "Delete " + payload['ref_type'].capitalize() + " Event"
+                    emb.description = f"summary: a {payload['ref_type']} was removed\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\n"
+                    emb.set_footer(name=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
+                case {"type": "ForkEvent", "payload": payload, "actor": actor, "repo": repo}:
+                    is_hanled = True
+                    emb.title = "Fork Event"
+                    emb.description = f"summary: a user forked this repository\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\n"
+                    emb.set_footer(name=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
+                case {"type": "PushEvent", "payload": payload, "actor": actor, "repo": repo}:
+                    is_hanled = True
+                    emb.title = "Push Event"
+                    emb.description = f"summary: a user made a push\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\nlast commit info:\nnumber of commits: {len(payload['commits'])}"
+                    emb.set_footer(name=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
+            if is_hanled:
+                for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': last_event['repo']['name']}}}, {"log-channel": 1, 'id': 1}):
+                    try:
+                        log_channel: nextcord.TextChannel = await bot.fetch_channel(int(guild_data['log-channel']))
+                        await log_channel.send(embed=emb)
+                    except:
+                        pass
+                continue
 
-class add_project_emb(nextcord.Embed):
-    def __init__(self):
-        super().__init__(title="adding project", description="waiting to validating repository address...", color=0x0092ed)
+class add_or_remove_repo_emb(nextcord.Embed):
+    def __init__(self, add=True):
+        super().__init__(title="Adding repository" if add else "Removing repository", description="waiting to validating repository address...", color=0x0092ed)
 
 class set_log_channel_emb(nextcord.Embed):
     def __init__(self, log_channel: nextcord.TextChannel):
-        super().__init__(title="log channel changed", description=f"log channel successfully changed to {log_channel.mention}", color=0x00ff00)
+        super().__init__(title="Log channel changed", description=f"log channel successfully changed to {log_channel.mention}", color=0x00ff00)
         
-class repository_removed_emb(nextcord.Embed):
+class repo_removed_emb(nextcord.Embed):
     def __init__(self, adder_id: Union[str, int], repo: github_repository):
-        super().__init__(title="Error", description=f"<@{adder_id}> it seems that the repository you added has been deleted", color=0xff0000)
+        super().__init__(title="Error", description=f"<@{adder_id}> looks like the repository you added ([{repo.url('GITHUB REPO')}]({repo.url('HTTPS')})) has been removed. This repository was removed from the watch list.", color=0xff0000)
 
 @bot.event
 async def on_ready():
@@ -250,12 +285,12 @@ async def set_log_channel(interaction: nextcord.Interaction, channel: nextcord.T
     t_guilds.update_one({"id": str(interaction.guild.id)}, {"$set": {'log-channel': str(channel.id)}})
     await interaction.send(embed=set_log_channel_emb(channel))
 
-@bot.slash_command("add-project", "add new project to watch list")
+@bot.slash_command("add-repo", "add new repository to watch list")
 async def add_project(interaction: nextcord.Interaction, repo: str = nextcord.SlashOption(required=True, description="url of repository (HTTPS, SSH or repository addres `user/repo`)")):
-    emb = add_project_emb()
+    emb = add_or_remove_repo_emb()
     msg: nextcord.PartialInteractionMessage = await interaction.send(embed=emb)
     if t_guilds.find({"id": str(interaction.guild.id)})[0]["log-channel"] == None:
-        emb.title = "adding repository was failed"
+        emb.title = "Adding repository was failed"
         emb.description = "log channel is not set"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
         emb.color = 0xff0000
         await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
@@ -263,7 +298,7 @@ async def add_project(interaction: nextcord.Interaction, repo: str = nextcord.Sl
     try:
         repository = github_repository.get_from_url(repo)
     except Exception as e:
-        emb.title = "adding repository was failed"
+        emb.title = "Adding repository was failed"
         emb.description = str(e)+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
         emb.color = 0xff0000
         await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
@@ -275,7 +310,7 @@ async def add_project(interaction: nextcord.Interaction, repo: str = nextcord.Sl
         emb.description = f"adding [{repository.repo}]({repository.url('HTTPS')}) repository into watch list..."
         await msg.edit(embed=emb)
     else:
-        emb.title = "adding repository was failed"
+        emb.title = "Adding repository was failed"
         emb.description = "repository not found, may be private or not exist"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
         emb.color = 0xff0000
         await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
@@ -288,15 +323,66 @@ async def add_project(interaction: nextcord.Interaction, repo: str = nextcord.Sl
     except:
         t_guilds.update_one({"id": str(interaction.guild.id)}, {"$pull": {"repos": {'$in': [repository.url("GITHUB REPO")]}}})
         traceback.print_exc()
-        emb.title = "adding repository was failed"
+        emb.title = "Adding repository was failed"
         emb.description = "an error has occurred. please try again later"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
         emb.color = 0xff0000
         await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
         return
     
-    emb.title = "adding repository was successfully"
+    emb.title = "Adding repository was successfully"
     emb.description = f"[{repository.repo}]({repository.url('HTTPS')}) repository has been added to the watch list."
     emb.color = 0x00ff00
     await msg.edit(embed=emb)
-
+    
+@bot.slash_command("remove-repo", "remove a repository from watch list")
+async def repove_repo(interaction: nextcord.Interaction, repo: str = nextcord.SlashOption(required=True, description="url of repository (HTTPS, SSH or repository addres `user/repo`)")):
+    emb = add_or_remove_repo_emb(False)
+    msg: nextcord.PartialInteractionMessage = await interaction.send(embed=emb)
+    try:
+        repository = github_repository.get_from_url(repo)
+    except Exception as e:
+        emb.title = "Removing repository was failed"
+        emb.description = str(e)+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
+        emb.color = 0xff0000
+        await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
+        return
+    else:
+        emb.description = f"Checking the existence of the [{repository.repo}]({repository.url('HTTPS')}) repository"
+        await msg.edit(embed=emb)
+    if repository.is_exists():
+        if (db_res:=t_guilds.find_one({"id": str(interaction.guild.id), "repos": {'$elemMatch': {'0': repository.url("GITHUB REPO")}}})) == None:
+            emb.title = "Removing repository was failed"
+            emb.description = f"repository [{repository.url('GITHUB REPO')}]({repository.url('HTTPS')}) was not found in the watch list"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
+            emb.color = 0xff0000
+            await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
+            return
+        if not (interaction.user.guild_permissions.administrator or db_res['repos'][0][1] == str(interaction.user.id)):
+            emb.title = "Removing repository was failed"
+            emb.description = f"you do not have access to remove this repository from the contact list. You must have added this repository yourself or be an administrator to be able to do this"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
+            emb.color = 0xff0000
+            await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
+            return
+        emb.description = f"removing [{repository.repo}]({repository.url('HTTPS')}) repository into watch list..."
+        await msg.edit(embed=emb)
+    else:
+        emb.title = "Adding repository was failed"
+        emb.description = "the repository entered in GitHub does not exist"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
+        emb.color = 0xff0000
+        await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
+        return
+    try:
+        t_guilds.update_one({"id": str(interaction.guild.id)}, {"$pull": {"repos": {'$in': [repository.url("GITHUB REPO")]}}})
+        events_id.pop(ind:=repos.index(repository.event_url()))
+        repos.pop(ind)
+    except:
+        traceback.print_exc()
+        emb.title = "Removing repository was failed"
+        emb.description = "an error has occurred. please try again later"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
+        emb.color = 0xff0000
+        await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
+        return
+    emb.title = "Removing repository was successfully"
+    emb.description = f"[{repository.repo}]({repository.url('HTTPS')}) repository has been removed from the watch list."
+    emb.color = 0x00ff00
+    await msg.edit(embed=emb)
 bot.run(BOT_TOKEN)
