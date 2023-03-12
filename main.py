@@ -222,22 +222,22 @@ async def event_loop():
                     is_hanled = True
                     emb.title = "Create " + payload['ref_type'].capitalize() + " Event"
                     emb.description = f"summary: a new {payload['ref_type']} was added\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\n"
-                    emb.set_footer(name=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
+                    emb.set_footer(text=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
                 case {"type": "DeleteEvent", "payload": payload, "actor": actor, "repo": repo}:
                     is_hanled = True
                     emb.title = "Delete " + payload['ref_type'].capitalize() + " Event"
                     emb.description = f"summary: a {payload['ref_type']} was removed\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\n"
-                    emb.set_footer(name=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
+                    emb.set_footer(text=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
                 case {"type": "ForkEvent", "payload": payload, "actor": actor, "repo": repo}:
                     is_hanled = True
                     emb.title = "Fork Event"
                     emb.description = f"summary: a user forked this repository\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\n"
-                    emb.set_footer(name=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
+                    emb.set_footer(text=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
                 case {"type": "PushEvent", "payload": payload, "actor": actor, "repo": repo}:
                     is_hanled = True
                     emb.title = "Push Event"
                     emb.description = f"summary: a user made a push\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\nlast commit info:\nnumber of commits: {len(payload['commits'])}"
-                    emb.set_footer(name=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
+                    emb.set_footer(text=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
             if is_hanled:
                 for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': last_event['repo']['name']}}}, {"log-channel": 1, 'id': 1}):
                     try:
