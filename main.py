@@ -198,8 +198,9 @@ load_repos()
 @tasks.loop(seconds=5)
 async def event_loop():
     for ind in range(len(repos)):
+        repo_event_url = repos[ind]
         try:
-            event_req = requests.get(repos[ind] , headers={"Authorization": f"Bearer {GITHUB_TOKEN}"})
+            event_req = requests.get(repo_event_url, headers={"Authorization": f"Bearer {GITHUB_TOKEN}"})
             if event_req.status_code == 200:
                 try:
                     event_id = int(event_req.json()[0]['id'])
@@ -208,7 +209,7 @@ async def event_loop():
             else:
                 raise Exception
         except:
-            repo: github_repository = github_repository.get_from_event_url(repos[ind])
+            repo: github_repository = github_repository.get_from_event_url(repo_event_url)
             for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': repo.url("GITHUB REPO")}}}, {"log-channel": 1, "repos.$": 1, 'id': 1}):
                 try:
                     log_channel: nextcord.TextChannel = await bot.fetch_channel(int(guild_data['log-channel']))
@@ -245,10 +246,11 @@ async def event_loop():
                     emb.description = f"summary: a user made a push\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\nnumber of commits: {len(payload['commits'])}\nlast commit: [{payload['head'][:7]}](https://github.com/{repo['name']}/commits/{payload['head']})\nlast commit message: `{payload['commits'][-1]['message']}`"
                     emb.set_footer(text=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
             if is_hanled:
-                for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': last_event['repo']['name'].lower()}}}, {"log-channel": 1, 'id': 1}):
+                for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': last_event['repo']['name']}}}, {"log-channel": 1, 'id': 1}):
                     try:
-                        log_channel: nextcord.TextChannel = await bot.fetch_channel(int(guild_data['log-channel']))
-                        await log_channel.send(embed=emb)
+                        if guild_data['log-channel'] != None:
+                            log_channel: nextcord.TextChannel = await bot.fetch_channel(int(guild_data['log-channel']))
+                            await log_channel.send(embed=emb)
                     except:
                         pass
             events_id[ind] = int(last_event['id'])
@@ -264,6 +266,10 @@ class set_log_channel_emb(nextcord.Embed):
 class repo_removed_emb(nextcord.Embed):
     def __init__(self, adder_id: Union[str, int], repo: github_repository):
         super().__init__(title="Error", description=f"<@{adder_id}> looks like the repository you added ([{repo.url('GITHUB REPO')}]({repo.url('HTTPS')})) has been removed. This repository was removed from the watch list.", color=0xff0000)
+
+class log_channel_deleted_emb(nextcord.Embed):
+    def __init__(self, owner: nextcord.Member):
+        super().__init__(title="Error", description=f"{owner.mention} the channel log was deleted. To reset the log channel, use the `/set-log-channel` command", color=0xff0000)
 
 @bot.event
 async def on_ready():
@@ -285,6 +291,12 @@ async def on_guild_join(guild: nextcord.Guild):
 @bot.event
 async def on_guild_remove(guild: nextcord.Guild):
     t_guilds.delete_one({"id": str(guild.id)})
+    
+@bot.event
+async def on_guild_channel_delete(channel: nextcord.TextChannel):
+    if t_guilds.find_one({'id': str(channel.guild.id), 'log-channel': str(channel.id)}) != None:
+        t_guilds.update_one({"id": str(channel.guild.id)}, {"$set": {"log-channel": None}})
+        await channel.guild.system_channel.send(embed=log_channel_deleted_emb(channel.guild.owner))
     
 @bot.slash_command("set-log-channel", "set the text channel to display logs there")
 async def set_log_channel(interaction: nextcord.Interaction, channel: nextcord.TextChannel = nextcord.SlashOption(required=True, description="text channel (note that the bot must have permission to send messages there)")):
