@@ -120,6 +120,12 @@ class github_repository:
     def is_exists(self):
         return requests.get(self.event_url()).status_code == 200
     
+    def get_real_name(self):
+        if (req:=requests.get(f"https://api.github.com/repos/{self.user}/{self.repo}")).status_code == 200:
+            self._user, self._repo = req.json()['full_name'].split("/", 1)
+        else:
+            raise Exception("can't get repository data")
+    
     def __repr__(self) -> str:
         return self.url()
     
@@ -239,7 +245,7 @@ async def event_loop():
                     emb.description = f"summary: a user made a push\nrepository: [{repo['name']}](https://github.com/{repo['name']})\nactor: [{actor['display_login']}](https://github.com/{actor['login']}/)\nnumber of commits: {len(payload['commits'])}\nlast commit: [{payload['head'][:7]}](https://github.com/{repo['name']}/commits/{payload['head']})\nlast commit message: `{payload['commits'][-1]['message']}`"
                     emb.set_footer(text=actor['display_login'], icon_url=f"https://avatars.githubusercontent.com/u/{actor['id']}")
             if is_hanled:
-                for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': last_event['repo']['name']}}}, {"log-channel": 1, 'id': 1}):
+                for guild_data in t_guilds.find({"repos": {'$elemMatch': {'0': last_event['repo']['name'].lower()}}}, {"log-channel": 1, 'id': 1}):
                     try:
                         log_channel: nextcord.TextChannel = await bot.fetch_channel(int(guild_data['log-channel']))
                         await log_channel.send(embed=emb)
@@ -286,7 +292,7 @@ async def set_log_channel(interaction: nextcord.Interaction, channel: nextcord.T
     await interaction.send(embed=set_log_channel_emb(channel))
 
 @bot.slash_command("add-repo", "add new repository to watch list")
-async def add_project(interaction: nextcord.Interaction, repo: str = nextcord.SlashOption(required=True, description="url of repository (HTTPS, SSH or repository addres `user/repo`)")):
+async def add_repo(interaction: nextcord.Interaction, repo: str = nextcord.SlashOption(required=True, description="url of repository (HTTPS, SSH or repository addres `user/repo`)")):
     emb = add_or_remove_repo_emb()
     msg: nextcord.PartialInteractionMessage = await interaction.send(embed=emb)
     if t_guilds.find({"id": str(interaction.guild.id)})[0]["log-channel"] == None:
@@ -304,14 +310,22 @@ async def add_project(interaction: nextcord.Interaction, repo: str = nextcord.Sl
         await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
         return
     else:
-        emb.description = f"checking availability of [{repository.repo}]({repository.url('HTTPS')}) repository"
+        emb.description = f"checking availability of [{repository.url('GITHUB REPO')}]({repository.url('HTTPS')}) repository"
         await msg.edit(embed=emb)
     if repository.is_exists():
-        emb.description = f"adding [{repository.repo}]({repository.url('HTTPS')}) repository into watch list..."
+        repository.get_real_name()
+        emb.description = f"adding [{repository.url('GITHUB REPO')}]({repository.url('HTTPS')}) repository into watch list..."
         await msg.edit(embed=emb)
     else:
         emb.title = "Adding repository was failed"
         emb.description = "repository not found, may be private or not exist"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
+        emb.color = 0xff0000
+        await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
+        return
+    
+    if (t_guilds.find_one({"id": str(interaction.guild.id), "repos": {'$elemMatch': {'0': repository.url("GITHUB REPO")}}})) != None:
+        emb.title = "Adding repository was failed"
+        emb.description = "this repository is already in your watchlist"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
         emb.color = 0xff0000
         await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
         return
@@ -330,12 +344,12 @@ async def add_project(interaction: nextcord.Interaction, repo: str = nextcord.Sl
         return
     
     emb.title = "Adding repository was successfully"
-    emb.description = f"[{repository.repo}]({repository.url('HTTPS')}) repository has been added to the watch list."
+    emb.description = f"[{repository.url('GITHUB REPO')}]({repository.url('HTTPS')}) repository has been added to the watch list."
     emb.color = 0x00ff00
     await msg.edit(embed=emb)
     
 @bot.slash_command("remove-repo", "remove a repository from watch list")
-async def repove_repo(interaction: nextcord.Interaction, repo: str = nextcord.SlashOption(required=True, description="url of repository (HTTPS, SSH or repository addres `user/repo`)")):
+async def remove_repo(interaction: nextcord.Interaction, repo: str = nextcord.SlashOption(required=True, description="url of repository (HTTPS, SSH or repository addres `user/repo`)")):
     emb = add_or_remove_repo_emb(False)
     msg: nextcord.PartialInteractionMessage = await interaction.send(embed=emb)
     try:
@@ -347,9 +361,11 @@ async def repove_repo(interaction: nextcord.Interaction, repo: str = nextcord.Sl
         await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
         return
     else:
-        emb.description = f"Checking the existence of the [{repository.repo}]({repository.url('HTTPS')}) repository"
+        emb.description = f"Checking the existence of the [{repository.url('GITHUB REPO')}]({repository.url('HTTPS')}) repository"
         await msg.edit(embed=emb)
+        
     if repository.is_exists():
+        repository.get_real_name()
         if (db_res:=t_guilds.find_one({"id": str(interaction.guild.id), "repos": {'$elemMatch': {'0': repository.url("GITHUB REPO")}}})) == None:
             emb.title = "Removing repository was failed"
             emb.description = f"repository [{repository.url('GITHUB REPO')}]({repository.url('HTTPS')}) was not found in the watch list"+f".\n*(this message will be deleted after {DEL_ERR_MSG} seconds)*"
@@ -362,7 +378,7 @@ async def repove_repo(interaction: nextcord.Interaction, repo: str = nextcord.Sl
             emb.color = 0xff0000
             await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
             return
-        emb.description = f"removing [{repository.repo}]({repository.url('HTTPS')}) repository into watch list..."
+        emb.description = f"removing [{repository.url('GITHUB REPO')}]({repository.url('HTTPS')}) repository into watch list..."
         await msg.edit(embed=emb)
     else:
         emb.title = "Adding repository was failed"
@@ -382,9 +398,27 @@ async def repove_repo(interaction: nextcord.Interaction, repo: str = nextcord.Sl
         await msg.edit(embed=emb, delete_after=DEL_ERR_MSG)
         return
     emb.title = "Removing repository was successfully"
-    emb.description = f"[{repository.repo}]({repository.url('HTTPS')}) repository has been removed from the watch list."
+    emb.description = f"[{repository.url('GITHUB REPO')}]({repository.url('HTTPS')}) repository has been removed from the watch list."
     emb.color = 0x00ff00
     await msg.edit(embed=emb)
+
+@bot.slash_command("watch-list", "veiw all repositories added with this server members")
+async def show_watch_list(interaction: nextcord.Interaction):
+    emb = nextcord.Embed()
+    _repos, _users = [], []
+    for repo, user in t_guilds.find_one({'id': str(interaction.guild.id)}, {'repos': 1, '_id': 0})['repos']:
+        _repos.append(f"[{repo}](https://github.com/{repo})")
+        _users.append(f"<@{user}>")
+    if len(_repos) == 0:
+        emb.description = "there are no repositories from your server in the watch list"
+        emb.color = 0xff0000
+        await interaction.send(embed=emb)
+        return
+    emb.title = "Server Watch list"
+    emb.description = f"the repositories that are in the watch list for this server ({len(_repos)} items):"
+    emb.add_field(name="reposository", value="\n".join(_repos))
+    emb.add_field(name="added by", value="\n".join(_users))
+    await interaction.send(embed=emb, allowed_mentions=nextcord.AllowedMentions(users=False))
 
 if __name__ == "__main__":
     server.run_as_thread()
